@@ -1,0 +1,59 @@
+# Geração de Campos de Estratégia em Lote (Batch AI Generation)
+
+Este plano descreve as alterações arquiteturais e visuais necessárias para substituir as requisições individuais de cada campo (botão de IA) por uma geração única, centralizada e baseada num grande contexto estratégico (o `strategie_doc`), conforme sua solicitação.
+
+## Objetivos
+1. Reduzir as chamadas repetitivas à LLM agrupando as solicitações.
+2. Enriquecer o contexto usando um documento global consolidado (`strategie_doc`).
+3. Adicionar controle via "checkboxes" nos campos para que o usuário escolha exatamente quais deseja preencher via IA.
+4. Mostrar um preview do resultado na última etapa antes de confirmar e salvar os dados.
+
+> [!IMPORTANT]
+> **User Review Required**
+> Este é um planejamento da arquitetura. Por favor, revise as perguntas na seção de *Open Questions* antes de darmos início à execução.
+
+## Proposed Changes
+
+### 1. Banco de Dados e Contexto
+
+#### [MODIFY] `SQL/014_add_strategie_doc.sql` (Novo Arquivo)
+- Vamos criar um novo script SQL para adicionar a coluna `strategie_doc JSONB DEFAULT '{}'::jsonb` à tabela `projects` (ou caso prefira em `marketing_strategies`, abordaremos isso nas perguntas abertas).
+- Criaremos uma rota provisória ou usaremos a rotina de análise inicial do projeto para popular este `strategie_doc` com um grande resumo de marketing, leads e negócios.
+
+### 2. Frontend (Formulário Wizard)
+
+#### [MODIFY] `src/app/marketing-strategy/[id]/page.tsx`
+- **Remover** o botão atual "✨ IA" de cada campo que chama a API individual.
+- **Adicionar** um `Checkbox` ao lado de cada label indicando "Gerar este campo com IA".
+- **Estado (State):** Criar um novo estado `selectedAIFields` (um Array/Set) para armazenar os campos (ex: `['setor', 'maturidade_digital']`) marcados.
+- **Etapa de Revisão (Último Step):** 
+  - Adicionar uma listagem dos campos marcados.
+  - Adicionar o botão "Preencher campos marcados com IA".
+  - Após a geração, exibir as sugestões recebidas da LLM para que o usuário aprove. Se ele aprovar, injetamos as respostas no estado `answers` do formulário.
+  - Só então o usuário clica em "Salvar/Gerar Estratégia Final".
+
+### 3. Backend (Nova Rota de Batch)
+
+#### [NEW] `src/app/api/generate-batch-fields/route.ts`
+- Rota que receberá: `projectId`, `selectedFields` (array de chaves), e `currentAnswers`.
+- Buscará o projeto no banco, incluindo o novo campo `strategie_doc`.
+- O payload para a LLM será construído passando o `strategie_doc` como conhecimento de base (contexto rico) e solicitará que a LLM retorne um objeto JSON contendo exatamente as chaves de `selectedFields` preenchidas com as sugestões.
+- **Exemplo de Retorno da IA:**
+  ```json
+  {
+    "setor": "Tecnologia / SaaS",
+    "maturidade_digital": "Avançada, focado em tráfego orgânico"
+  }
+  ```
+
+---
+
+## Open Questions
+
+Para que possamos implementar isso perfeitamente, preciso de algumas definições suas:
+
+1. **Localização do `strategie_doc`:** Devemos criar essa nova coluna na tabela principal de `projects` ou criar uma nova tabela específica só para documentos estratégicos? (Recomendo em `projects` se for um documento abrangente que servirá para outros formulários futuros também).
+2. **Geração do `strategie_doc`:** O passo 1 diz "*gerarmos um grande arquivo json...*". Esse arquivo será gerado em um momento ANTERIOR a essa tela (ex: ao criar o projeto) ou você quer um botão na própria tela do *Marketing Strategy* que diga "1. Gerar Strategic Doc"? 
+3. O comportamento que deseja na revisão final é: O usuário clica em "Gerar com IA", os campos aparecem na tela, ele edita se quiser e então ele clica em "Confirmar e Salvar"?
+
+Se o plano estiver alinhado com sua visão, basta responder a essas perguntas e eu executarei as alterações completas.
